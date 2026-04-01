@@ -3,6 +3,7 @@ package com.refnote.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -19,8 +20,9 @@ import java.time.Duration;
 
 @Slf4j
 @Service
+@Profile("prod")
 @RequiredArgsConstructor
-public class S3Service {
+public class S3Service implements FileStorageService {
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
@@ -28,6 +30,7 @@ public class S3Service {
     @Value("${cloud.aws.s3.bucket}")
     private String bucket;
 
+    @Override
     public String upload(MultipartFile file, Long userId, Long documentId) {
         String key = String.format("documents/%d/%d/original.pdf", userId, documentId);
 
@@ -47,7 +50,8 @@ public class S3Service {
         }
     }
 
-    public String generatePresignedUrl(String key) {
+    @Override
+    public String getFileUrl(String key) {
         GetObjectRequest getRequest = GetObjectRequest.builder()
                 .bucket(bucket)
                 .key(key)
@@ -61,6 +65,7 @@ public class S3Service {
         return s3Presigner.presignGetObject(presignRequest).url().toString();
     }
 
+    @Override
     public InputStream download(String key) {
         GetObjectRequest getRequest = GetObjectRequest.builder()
                 .bucket(bucket)
@@ -70,6 +75,7 @@ public class S3Service {
         return s3Client.getObject(getRequest);
     }
 
+    @Override
     public void delete(String key) {
         DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
                 .bucket(bucket)

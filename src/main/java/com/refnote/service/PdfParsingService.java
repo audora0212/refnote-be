@@ -4,7 +4,6 @@ import com.refnote.entity.Document;
 import com.refnote.entity.PdfBlock;
 import com.refnote.repository.DocumentRepository;
 import com.refnote.repository.PdfBlockRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -13,7 +12,8 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,50 +22,68 @@ import java.util.List;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PdfParsingService {
 
     private final PdfBlockRepository pdfBlockRepository;
     private final DocumentRepository documentRepository;
-    private final S3Service s3Service;
+    private final FileStorageService fileStorageService;
     private final ExplanationService explanationService;
+    private final TransactionTemplate transactionTemplate;
+
+    public PdfParsingService(PdfBlockRepository pdfBlockRepository,
+                             DocumentRepository documentRepository,
+                             FileStorageService fileStorageService,
+                             ExplanationService explanationService,
+                             PlatformTransactionManager transactionManager) {
+        this.pdfBlockRepository = pdfBlockRepository;
+        this.documentRepository = documentRepository;
+        this.fileStorageService = fileStorageService;
+        this.explanationService = explanationService;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+    }
 
     @Async("taskExecutor")
     public void parseAndGenerate(Long documentId) {
         try {
-            updateStatus(documentId, Document.DocumentStatus.PARSING);
+            doUpdateStatus(documentId, Document.DocumentStatus.PARSING);
 
-            parseAndSaveBlocks(documentId);
+            doParseAndSaveBlocks(documentId);
 
-            updateStatus(documentId, Document.DocumentStatus.GENERATING);
+            doUpdateStatus(documentId, Document.DocumentStatus.GENERATING);
 
             explanationService.generateExplanations(documentId);
 
         } catch (Exception e) {
             log.error("PDF 파싱/해설 생성 실패 - 문서 {}", documentId, e);
-            updateStatus(documentId, Document.DocumentStatus.FAILED);
+            doUpdateStatus(documentId, Document.DocumentStatus.FAILED);
         }
     }
 
-    @Transactional
-    public void updateStatus(Long documentId, Document.DocumentStatus status) {
-        Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("문서를 찾을 수 없습니다: " + documentId));
-        document.setStatus(status);
-        documentRepository.save(document);
+    private void doUpdateStatus(Long documentId, Document.DocumentStatus status) {
+        transactionTemplate.executeWithoutResult(txStatus -> {
+            Document document = documentRepository.findById(documentId)
+                    .orElseThrow(() -> new RuntimeException("문서를 찾을 수 없습니다: " + documentId));
+            document.setStatus(status);
+            documentRepository.save(document);
+        });
     }
 
-    @Transactional
-    public void parseAndSaveBlocks(Long documentId) throws IOException {
-        Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("문서를 찾을 수 없습니다: " + documentId));
+    private void doParseAndSaveBlocks(Long documentId) {
+        transactionTemplate.executeWithoutResult(txStatus -> {
+            try {
+                Document document = documentRepository.findById(documentId)
+                        .orElseThrow(() -> new RuntimeException("문서를 찾을 수 없습니다: " + documentId));
 
-        InputStream pdfStream = s3Service.download(document.getS3Key());
-        List<PdfBlock> blocks = extractBlocks(pdfStream, document);
+                InputStream pdfStream = fileStorageService.download(document.getS3Key());
+                List<PdfBlock> blocks = extractBlocks(pdfStream, document);
 
-        pdfBlockRepository.saveAll(blocks);
-        documentRepository.save(document);
-        log.info("PDF 파싱 완료 - 문서 {}: {}개 블록 추출", documentId, blocks.size());
+                pdfBlockRepository.saveAll(blocks);
+                documentRepository.save(document);
+                log.info("PDF 파싱 완료 - 문서 {}: {}개 블록 추출", documentId, blocks.size());
+            } catch (IOException e) {
+                throw new RuntimeException("PDF 파싱 실패", e);
+            }
+        });
     }
 
     private List<PdfBlock> extractBlocks(InputStream pdfStream, Document document) throws IOException {

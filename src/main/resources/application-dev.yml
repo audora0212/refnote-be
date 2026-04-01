@@ -25,6 +25,9 @@ cloud:
       access-key: ${AWS_ACCESS_KEY:localkey}
       secret-key: ${AWS_SECRET_KEY:localsecret}
 
+file:
+  upload-dir: ./uploads
+
 claude:
   api-key: ${CLAUDE_API_KEY:}
   model: claude-haiku-4-5-20250401

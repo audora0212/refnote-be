@@ -27,7 +27,7 @@ public class DocumentService {
     private final UserRepository userRepository;
     private final PdfBlockRepository pdfBlockRepository;
     private final ExplanationRepository explanationRepository;
-    private final S3Service s3Service;
+    private final FileStorageService fileStorageService;
     private final PdfParsingService pdfParsingService;
 
     @Transactional
@@ -48,9 +48,9 @@ public class DocumentService {
                 .build();
         document = documentRepository.save(document);
 
-        String s3Key = s3Service.upload(file, userId, document.getId());
+        String s3Key = fileStorageService.upload(file, userId, document.getId());
         document.setS3Key(s3Key);
-        document.setS3Url(s3Service.generatePresignedUrl(s3Key));
+        document.setS3Url(fileStorageService.getFileUrl(s3Key));
         documentRepository.save(document);
 
         pdfParsingService.parseAndGenerate(document.getId());
@@ -72,7 +72,7 @@ public class DocumentService {
         Document document = findDocumentAndVerifyOwner(documentId, userId);
 
         String presignedUrl = document.getS3Key() != null
-                ? s3Service.generatePresignedUrl(document.getS3Key())
+                ? fileStorageService.getFileUrl(document.getS3Key())
                 : null;
 
         List<PdfBlockResponse> blocks = pdfBlockRepository
@@ -104,7 +104,7 @@ public class DocumentService {
         Document document = findDocumentAndVerifyOwner(documentId, userId);
 
         if (document.getS3Key() != null) {
-            s3Service.delete(document.getS3Key());
+            fileStorageService.delete(document.getS3Key());
         }
 
         documentRepository.delete(document);
