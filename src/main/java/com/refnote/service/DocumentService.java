@@ -13,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -53,7 +55,14 @@ public class DocumentService {
         document.setS3Url(fileStorageService.getFileUrl(s3Key));
         documentRepository.save(document);
 
-        pdfParsingService.parseAndGenerate(document.getId());
+        // 트랜잭션 커밋 후 비동기 파싱 시작 (커밋 전에 @Async 호출하면 DB에서 문서를 못 찾음)
+        Long docId = document.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                pdfParsingService.parseAndGenerate(docId);
+            }
+        });
 
         return DocumentResponse.from(document);
     }
