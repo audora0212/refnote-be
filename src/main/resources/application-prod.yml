@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:3306/refnote?useSSL=true&serverTimezone=Asia/Seoul
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+cloud:
+  aws:
+    s3:
+      bucket: refnote-prod
+    region:
+      static: ap-northeast-2
+
+claude:
+  api-key: ${CLAUDE_API_KEY}
+  model: claude-haiku-4-5-20250401
+
+logging:
+  level:
+    com.refnote: INFO

@@ -1,0 +1,34 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:refnote
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+  flyway:
+    enabled: false
+
+cloud:
+  aws:
+    s3:
+      bucket: refnote-dev
+    region:
+      static: ap-northeast-2
+    credentials:
+      access-key: ${AWS_ACCESS_KEY:localkey}
+      secret-key: ${AWS_SECRET_KEY:localsecret}
+
+claude:
+  api-key: ${CLAUDE_API_KEY:}
+  model: claude-haiku-4-5-20250401
+
+logging:
+  level:
+    com.refnote: DEBUG
+    org.hibernate.SQL: DEBUG
