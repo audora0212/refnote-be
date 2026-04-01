@@ -44,8 +44,6 @@ public class ChatService {
             throw ApiException.forbidden("해당 문서에 대한 접근 권한이 없습니다.");
         }
 
-        checkChatLimit(user);
-
         ChatMessage userMessage = ChatMessage.builder()
                 .document(document)
                 .user(user)

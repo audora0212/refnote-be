@@ -30,14 +30,10 @@ public class DocumentService {
     private final S3Service s3Service;
     private final PdfParsingService pdfParsingService;
 
-    private static final int FREE_DOCUMENT_LIMIT = 3;
-
     @Transactional
     public DocumentResponse uploadDocument(MultipartFile file, String title, Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("사용자를 찾을 수 없습니다."));
-
-        checkDocumentLimit(user);
 
         if (title == null || title.isBlank()) {
             title = file.getOriginalFilename() != null
@@ -161,12 +157,4 @@ public class DocumentService {
         return document;
     }
 
-    private void checkDocumentLimit(User user) {
-        if (user.getRole() == User.UserRole.FREE) {
-            long count = documentRepository.countByUserId(user.getId());
-            if (count >= FREE_DOCUMENT_LIMIT) {
-                throw ApiException.freeLimitExceeded("무료 사용자는 문서를 최대 " + FREE_DOCUMENT_LIMIT + "개까지 업로드할 수 있습니다.");
-            }
-        }
-    }
 }

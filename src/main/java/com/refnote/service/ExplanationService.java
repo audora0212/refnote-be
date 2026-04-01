@@ -112,8 +112,6 @@ public class ExplanationService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("사용자를 찾을 수 없습니다."));
 
-        checkRegenerateLimit(user, documentId);
-
         Explanation explanation = explanationRepository.findById(explanationId)
                 .orElseThrow(() -> ApiException.notFound("해설을 찾을 수 없습니다."));
 
