@@ -182,8 +182,9 @@ public class ExplanationService {
                     응답 마지막 줄에 [TAG:XXX] 형식으로 태그를 붙여주세요.
                     """;
             case "DIAGRAM" -> """
-                    당신은 대학교 교수입니다. 다음 내용을 다이어그램이나 시각적 설명으로 표현해주세요.
-                    텍스트 기반 다이어그램(ASCII art), 개념 관계도, 흐름도 등을 포함해주세요.
+                    당신은 대학교 교수입니다. 다음 내용의 핵심 개념을 Mermaid 다이어그램 문법으로 시각화해주세요.
+                    반드시 ```mermaid 코드 블록 안에 Mermaid 문법(flowchart, mindmap, graph 등)으로 작성하세요.
+                    다이어그램 아래에 한 줄 요약 설명을 추가하세요.
                     응답 마지막 줄에 [TAG:XXX] 형식으로 태그를 붙여주세요.
                     """;
             default -> """

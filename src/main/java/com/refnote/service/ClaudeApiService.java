@@ -58,6 +58,10 @@ public class ClaudeApiService {
     }
 
     private String generateMockResponse(String systemPrompt, String userMessage) {
+        // DIAGRAM 모드 판별 (Mermaid 다이어그램 요청)
+        if (systemPrompt.contains("Mermaid") || systemPrompt.contains("다이어그램 문법")) {
+            return generateMockDiagramResponse();
+        }
         // 해설 생성 요청인지 채팅 요청인지 판별
         if (systemPrompt.contains("강의하듯 설명") || systemPrompt.contains("설명해주세요")) {
             return generateMockExplanation(systemPrompt, userMessage);
@@ -67,6 +71,20 @@ public class ClaudeApiService {
         }
         // 기본 해설 mock
         return generateMockExplanation(systemPrompt, userMessage);
+    }
+
+    private String generateMockDiagramResponse() {
+        return """
+                ```mermaid
+                flowchart TD
+                    A[핵심 개념] --> B[하위 개념 1]
+                    A --> C[하위 개념 2]
+                    B --> D[세부 항목]
+                    C --> D
+                ```
+                이 다이어그램은 핵심 개념들의 관계를 보여줍니다.
+                (Claude API 미연결 상태의 Mock 다이어그램입니다.)
+                [TAG:KEY_CONCEPT]""";
     }
 
     private String generateMockExplanation(String systemPrompt, String userMessage) {
