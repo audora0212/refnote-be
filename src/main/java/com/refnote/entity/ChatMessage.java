@@ -37,6 +37,9 @@ public class ChatMessage {
     @Column(length = 500)
     private String relatedBlockIds;
 
+    @Enumerated(EnumType.STRING)
+    private Confidence confidence;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

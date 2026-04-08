@@ -7,5 +7,7 @@ import java.util.List;
 
 public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByUserIdOrderByCreatedAtDesc(Long userId);
+    List<Document> findByUserIdAndSubjectIdOrderByCreatedAtDesc(Long userId, Long subjectId);
     long countByUserId(Long userId);
+    int countBySubjectId(Long subjectId);
 }

@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -19,6 +20,8 @@ public class ExplanationResponse {
     private Integer explanationOrder;
     private String content;
     private String tag;
+    private LocalDateTime createdAt;
+    private LocalDateTime regeneratedAt;
 
     public static ExplanationResponse from(Explanation explanation) {
         List<Long> blockIdList = Collections.emptyList();
@@ -36,6 +39,8 @@ public class ExplanationResponse {
                 .explanationOrder(explanation.getExplanationOrder())
                 .content(explanation.getContent())
                 .tag(explanation.getTag().name())
+                .createdAt(explanation.getCreatedAt())
+                .regeneratedAt(explanation.getRegeneratedAt())
                 .build();
     }
 }

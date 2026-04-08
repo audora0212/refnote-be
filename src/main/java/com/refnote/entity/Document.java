@@ -61,7 +61,49 @@ public class Document {
     @Builder.Default
     private List<ChatMessage> chatMessages = new ArrayList<>();
 
+    @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StudyTag> studyTags = new ArrayList<>();
+
+    @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<Note> notes = new ArrayList<>();
+
+    @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<ReviewQueueItem> reviewQueueItems = new ArrayList<>();
+
+    @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StudySession> studySessions = new ArrayList<>();
+
+    @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<Annotation> annotations = new ArrayList<>();
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "subject_id")
+    private Subject subject;
+
+    // === 분류 결과 필드 (v2) ===
+
+    @Column(length = 50)
+    private String estimatedSubject;
+
+    @Column(length = 20)
+    private String estimatedDifficulty;
+
+    @Column(length = 30)
+    private String documentType;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean isStudyMaterial = true;
+
+    @Column(length = 500)
+    private String rejectionReason;
+
     public enum DocumentStatus {
-        UPLOADING, PARSING, GENERATING, READY, FAILED
+        UPLOADING, ANALYZING, PARSING, GENERATING, READY, REJECTED, FAILED
     }
 }

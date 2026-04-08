@@ -23,9 +23,10 @@ public class DocumentController {
     public ResponseEntity<Map<String, Object>> uploadDocument(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "subjectId", required = false) Long subjectId,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        DocumentResponse response = documentService.uploadDocument(file, title, userId);
+        DocumentResponse response = documentService.uploadDocument(file, title, subjectId, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "success", true,
                 "data", response
@@ -33,9 +34,11 @@ public class DocumentController {
     }
 
     @GetMapping
-    public ResponseEntity<Map<String, Object>> getDocuments(Authentication authentication) {
+    public ResponseEntity<Map<String, Object>> getDocuments(
+            @RequestParam(value = "subjectId", required = false) Long subjectId,
+            Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        DocumentListResponse response = documentService.getDocuments(userId);
+        DocumentListResponse response = documentService.getDocuments(userId, subjectId);
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "data", response

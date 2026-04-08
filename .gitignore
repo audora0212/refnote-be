@@ -11,7 +11,8 @@ build/
 # Environment
 .env
 *.env
-application-dev.yml
+application-local.yml
+src/main/resources/application-local.yml
 
 # OS
 .DS_Store
@@ -23,3 +24,4 @@ logs/
 
 # Uploads (dev)
 uploads/
+.gstack/

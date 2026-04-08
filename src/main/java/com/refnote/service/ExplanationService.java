@@ -61,10 +61,13 @@ public class ExplanationService {
 
             String systemPrompt = """
                     당신은 대학교 교수입니다. 학생에게 PDF 원문 내용을 강의하듯 설명해주세요.
-                    다음 규칙을 따르세요:
-                    1. 핵심 개념을 명확하게 설명하세요.
-                    2. 어려운 용어가 있으면 쉽게 풀어서 설명하세요.
-                    3. 응답 마지막 줄에 다음 태그 중 하나를 [TAG:XXX] 형식으로 붙여주세요:
+                    다음 규칙을 반드시 따르세요:
+                    1. 서론, 인사말, 맺음말, "이해하는 시간을 가지겠습니다" 같은 도입부 없이 바로 본론으로 시작하세요.
+                    2. 핵심 개념을 명확하게 설명하세요.
+                    3. 어려운 용어가 있으면 쉽게 풀어서 설명하세요.
+                    4. 원문에 있는 내용만 기반으로 설명하세요. 외부 지식을 추가하지 마세요.
+                    5. 교수 연락처, 이메일, 전화번호, 홈페이지, 강의실 정보, 수업 시간, 성적 비율 등 행정/메타데이터는 완전히 무시하고 학습 내용만 설명하세요.
+                    6. 응답 마지막 줄에 다음 태그 중 하나를 [TAG:XXX] 형식으로 붙여주세요:
                        DEFINITION(정의), KEY_CONCEPT(핵심개념), EXAM_POINT(시험포인트), CONFUSING(자주 헷갈림), NONE(일반)
                     """;
 
@@ -111,6 +114,8 @@ public class ExplanationService {
     public ExplanationResponse regenerate(Long documentId, Long explanationId, RegenerateRequest request, Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("사용자를 찾을 수 없습니다."));
+
+        checkRegenerateLimit(user, documentId);
 
         Explanation explanation = explanationRepository.findById(explanationId)
                 .orElseThrow(() -> ApiException.notFound("해설을 찾을 수 없습니다."));
@@ -206,7 +211,85 @@ public class ExplanationService {
         return response.replaceAll("\\[TAG:[A-Z_]+]", "").trim();
     }
 
+    /**
+     * 블록 그룹핑: HEADING 기반 섹션 분할 + 크기 제한.
+     * - HEADING 블록을 만나면 새 그룹 시작
+     * - 그룹 텍스트 합산 200자 미만이면 다음 그룹과 병합
+     * - 그룹 텍스트 합산 3000자 초과하면 강제 분할
+     * - HEADING이 없으면 기존 로직(1500자/5블록) 폴백
+     */
     private List<List<PdfBlock>> groupBlocks(List<PdfBlock> blocks) {
+        // HEADING 존재 여부 확인
+        boolean hasHeading = blocks.stream()
+                .anyMatch(b -> b.getBlockType() == PdfBlock.BlockType.HEADING);
+
+        if (!hasHeading) {
+            return groupBlocksFallback(blocks);
+        }
+
+        return groupBlocksByHeading(blocks);
+    }
+
+    /**
+     * HEADING 기반 그룹핑
+     */
+    private List<List<PdfBlock>> groupBlocksByHeading(List<PdfBlock> blocks) {
+        List<List<PdfBlock>> rawGroups = new ArrayList<>();
+        List<PdfBlock> currentGroup = new ArrayList<>();
+
+        for (PdfBlock block : blocks) {
+            // HEADING을 만나면 현재 그룹을 마감하고 새 그룹 시작
+            if (block.getBlockType() == PdfBlock.BlockType.HEADING && !currentGroup.isEmpty()) {
+                rawGroups.add(new ArrayList<>(currentGroup));
+                currentGroup.clear();
+            }
+            currentGroup.add(block);
+        }
+        if (!currentGroup.isEmpty()) {
+            rawGroups.add(currentGroup);
+        }
+
+        // 병합(200자 미만) + 강제 분할(3000자 초과)
+        List<List<PdfBlock>> finalGroups = new ArrayList<>();
+        for (List<PdfBlock> group : rawGroups) {
+            int groupLen = groupTextLength(group);
+
+            // 200자 미만이면 이전 그룹과 병합 시도
+            if (groupLen < 200 && !finalGroups.isEmpty()) {
+                List<PdfBlock> prev = finalGroups.get(finalGroups.size() - 1);
+                int mergedLen = groupTextLength(prev) + groupLen;
+                if (mergedLen <= 3000) {
+                    prev.addAll(group);
+                    continue;
+                }
+            }
+
+            // 3000자 초과면 강제 분할
+            if (groupLen > 3000) {
+                List<PdfBlock> subGroup = new ArrayList<>();
+                for (PdfBlock b : group) {
+                    subGroup.add(b);
+                    if (groupTextLength(subGroup) > 3000) {
+                        // 현재 블록을 포함해서 분할
+                        finalGroups.add(new ArrayList<>(subGroup));
+                        subGroup.clear();
+                    }
+                }
+                if (!subGroup.isEmpty()) {
+                    finalGroups.add(subGroup);
+                }
+            } else {
+                finalGroups.add(group);
+            }
+        }
+
+        return finalGroups;
+    }
+
+    /**
+     * 기존 로직 폴백: 1500자/5블록 기준 기계적 분할
+     */
+    private List<List<PdfBlock>> groupBlocksFallback(List<PdfBlock> blocks) {
         List<List<PdfBlock>> groups = new ArrayList<>();
         List<PdfBlock> currentGroup = new ArrayList<>();
         int currentPage = -1;
@@ -236,5 +319,11 @@ public class ExplanationService {
         }
 
         return groups;
+    }
+
+    private int groupTextLength(List<PdfBlock> group) {
+        return group.stream()
+                .mapToInt(b -> b.getContent() != null ? b.getContent().length() : 0)
+                .sum();
     }
 }

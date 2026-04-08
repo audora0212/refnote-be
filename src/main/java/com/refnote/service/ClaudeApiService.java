@@ -6,6 +6,11 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.refnote.dto.review.QuizResponse;
+
 import java.util.*;
 
 @Slf4j
@@ -58,6 +63,18 @@ public class ClaudeApiService {
     }
 
     private String generateMockResponse(String systemPrompt, String userMessage) {
+        // AI 블록 분리 모드 판별
+        if (systemPrompt.contains("학습 단위(섹션/주제)로 나눠주세요")) {
+            return generateMockBlockSplit(userMessage);
+        }
+        // 분류 모드 판별
+        if (systemPrompt.contains("학습자료 분류 전문가")) {
+            return "{\"isStudyMaterial\":true,\"estimatedSubject\":\"컴퓨터공학\",\"estimatedDifficulty\":\"INTERMEDIATE\",\"documentType\":\"TEXTBOOK\"}";
+        }
+        // 퀴즈 모드 판별
+        if (systemPrompt.contains("OX 퀴즈를 만드는") || systemPrompt.contains("빈칸 채우기 퀴즈를 만드는")) {
+            return generateMockQuizJson(systemPrompt);
+        }
         // DIAGRAM 모드 판별 (Mermaid 다이어그램 요청)
         if (systemPrompt.contains("Mermaid") || systemPrompt.contains("다이어그램 문법")) {
             return generateMockDiagramResponse();
@@ -71,6 +88,26 @@ public class ClaudeApiService {
         }
         // 기본 해설 mock
         return generateMockExplanation(systemPrompt, userMessage);
+    }
+
+    private String generateMockBlockSplit(String pageText) {
+        // Mock: 텍스트를 줄바꿈 2개 기준으로 단락 분리, 각각 TEXT 블록으로 반환
+        String[] paragraphs = pageText.split("\\n\\s*\\n");
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (String para : paragraphs) {
+            String trimmed = para.trim();
+            if (trimmed.isEmpty()) continue;
+            if (!first) sb.append(",");
+            first = false;
+            // JSON escape
+            String escaped = trimmed.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+            // 짧은 텍스트는 HEADING으로 추정
+            String type = trimmed.length() < 80 ? "HEADING" : "TEXT";
+            sb.append("{\"type\":\"").append(type).append("\",\"content\":\"").append(escaped).append("\"}");
+        }
+        sb.append("]");
+        return sb.toString();
     }
 
     private String generateMockDiagramResponse() {
@@ -125,6 +162,240 @@ public class ClaudeApiService {
                 "원문을 참고하여 관련 개념을 확인해 보시기 바랍니다.\n\n" +
                 "(Claude API 미연결 상태의 Mock 응답입니다. 실제 API 키를 설정하면 문서 기반의 정확한 답변이 제공됩니다.)",
                 question.length() > 100 ? question.substring(0, 100) + "..." : question);
+    }
+
+    private String generateMockQuizJson(String systemPrompt) {
+        if (systemPrompt.contains("OX 퀴즈를 만드는")) {
+            return "{\"question\":\"이 개념은 해당 학습 내용의 핵심 원리에 해당한다. (O/X)\",\"answer\":\"O\",\"explanation\":\"해당 블록에서 다루고 있는 내용은 주제의 핵심 원리입니다. (Mock 퀴즈)\"}";
+        } else {
+            return "{\"question\":\"해당 학습 내용에서 다루는 핵심 개념을 ___이라 한다.\",\"answer\":\"핵심 원리\",\"explanation\":\"원문에서 설명하는 주요 개념입니다. (Mock 퀴즈)\"}";
+        }
+    }
+
+    // === 미니 퀴즈 생성 (v4) ===
+
+    /**
+     * 학습 내용을 기반으로 미니 퀴즈 1개를 생성한다.
+     * Claude API가 없으면 mock 퀴즈를 반환한다.
+     *
+     * @param blockContent  복습 대상 블록의 원문 텍스트
+     * @param explanationContent  해설 내용 (null 가능)
+     * @param sourceBlockId  원본 블록 ID
+     * @return QuizResponse
+     */
+    public QuizResponse generateQuiz(String blockContent, String explanationContent, Long sourceBlockId) {
+        // 퀴즈 유형 랜덤 선택
+        String quizType = new Random().nextBoolean() ? "OX" : "FILL_BLANK";
+
+        String systemPrompt = buildQuizSystemPrompt(quizType);
+        String userMessage = buildQuizUserMessage(blockContent, explanationContent);
+
+        String response = callClaude(systemPrompt, userMessage);
+        return parseQuizResponse(response, quizType, sourceBlockId);
+    }
+
+    private String buildQuizSystemPrompt(String quizType) {
+        if ("OX".equals(quizType)) {
+            return """
+                당신은 학습 내용을 기반으로 OX 퀴즈를 만드는 전문가입니다.
+                제공된 학습 내용을 바탕으로 OX 문제 1개를 생성하세요.
+
+                반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이 JSON만):
+                {"question":"...내용... (O/X)","answer":"O 또는 X","explanation":"정답 해설"}
+
+                규칙:
+                - 질문은 반드시 참/거짓을 판단할 수 있는 명제여야 합니다
+                - 질문 끝에 (O/X)를 붙이세요
+                - answer는 "O" 또는 "X" 중 하나
+                - explanation은 왜 그 답이 맞는지 1-2문장으로 설명
+                """;
+        } else {
+            return """
+                당신은 학습 내용을 기반으로 빈칸 채우기 퀴즈를 만드는 전문가입니다.
+                제공된 학습 내용을 바탕으로 빈칸 문제 1개를 생성하세요.
+
+                반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이 JSON만):
+                {"question":"...___... 을(를) 무엇이라 하는가?","answer":"정답 단어","explanation":"정답 해설"}
+
+                규칙:
+                - 질문에서 핵심 용어 하나를 ___로 대체하세요
+                - answer는 빈칸에 들어갈 정확한 답
+                - explanation은 왜 그 답이 맞는지 1-2문장으로 설명
+                """;
+        }
+    }
+
+    private String buildQuizUserMessage(String blockContent, String explanationContent) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("다음 학습 내용을 기반으로 퀴즈를 만들어주세요:\n\n");
+        sb.append("【원문】\n").append(blockContent).append("\n");
+        if (explanationContent != null && !explanationContent.isBlank()) {
+            sb.append("\n【해설】\n").append(explanationContent).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private QuizResponse parseQuizResponse(String response, String quizType, Long sourceBlockId) {
+        try {
+            String json = response.trim();
+            int jsonStart = json.indexOf('{');
+            int jsonEnd = json.lastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                json = json.substring(jsonStart, jsonEnd + 1);
+            }
+
+            JsonNode node = objectMapper.readTree(json);
+
+            return QuizResponse.builder()
+                    .type(quizType)
+                    .question(node.path("question").asText(""))
+                    .answer(node.path("answer").asText(""))
+                    .explanation(node.path("explanation").asText(""))
+                    .sourceBlockId(sourceBlockId)
+                    .build();
+        } catch (Exception e) {
+            log.warn("퀴즈 응답 파싱 실패, mock 퀴즈 반환: {}", e.getMessage());
+            return generateMockQuiz(quizType, sourceBlockId);
+        }
+    }
+
+    private QuizResponse generateMockQuiz(String quizType, Long sourceBlockId) {
+        if ("OX".equals(quizType)) {
+            return QuizResponse.builder()
+                    .type("OX")
+                    .question("이 개념은 해당 학습 내용의 핵심 원리에 해당한다. (O/X)")
+                    .answer("O")
+                    .explanation("해당 블록에서 다루고 있는 내용은 주제의 핵심 원리입니다. (Mock 퀴즈)")
+                    .sourceBlockId(sourceBlockId)
+                    .build();
+        } else {
+            return QuizResponse.builder()
+                    .type("FILL_BLANK")
+                    .question("해당 학습 내용에서 다루는 핵심 개념을 ___이라 한다.")
+                    .answer("핵심 원리")
+                    .explanation("원문에서 설명하는 주요 개념입니다. (Mock 퀴즈)")
+                    .sourceBlockId(sourceBlockId)
+                    .build();
+        }
+    }
+
+    // === AI 블록 분리 기능 ===
+
+    public record SplitBlock(String type, String content) {}
+
+    /**
+     * 페이지 텍스트를 AI에게 학습 단위로 분리 요청.
+     * 실패 시 null 반환 (호출부에서 fallback 처리).
+     */
+    public List<SplitBlock> splitBlocksWithAI(String pageText) {
+        String systemPrompt = """
+                당신은 PDF 학습자료를 분석하는 전문가입니다.
+                주어진 페이지 텍스트를 학습 단위(섹션/주제)로 나눠주세요.
+
+                규칙:
+                1. 하나의 주제나 개념을 다루는 단위로 블록을 나누세요.
+                2. 제목/소제목은 type: "HEADING"으로 표시하세요.
+                3. 학습 내용은 type: "TEXT"로 표시하세요.
+                4. 수식이 포함된 블록은 type: "FORMULA"로 표시하세요.
+                5. 표가 포함된 블록은 type: "TABLE"로 표시하세요.
+                6. 교수 이름, 이메일, 전화번호, 홈페이지, 강의실, 학과 사무실, 연구실 위치, 수업 시간, 출석/성적 비율 등의 메타데이터는 type: "SKIP"으로 표시하세요.
+                7. 페이지 번호, 머리글/바닥글 등 반복되는 장식 텍스트도 type: "SKIP"으로 표시하세요.
+
+                반드시 아래 JSON 배열 형식으로만 응답하세요 (다른 텍스트 없이 JSON만):
+                [{"type":"HEADING","content":"..."},{"type":"TEXT","content":"..."},{"type":"SKIP","content":"..."}]
+                """;
+
+        try {
+            String response = callClaude(systemPrompt, pageText);
+            // JSON 배열 부분만 추출
+            String json = response.trim();
+            int arrStart = json.indexOf('[');
+            int arrEnd = json.lastIndexOf(']');
+            if (arrStart >= 0 && arrEnd > arrStart) {
+                json = json.substring(arrStart, arrEnd + 1);
+            }
+
+            List<SplitBlock> blocks = objectMapper.readValue(json, new TypeReference<List<SplitBlock>>() {});
+            // 유효성 검증: 빈 결과면 null 반환
+            if (blocks == null || blocks.isEmpty()) {
+                return null;
+            }
+            return blocks;
+        } catch (Exception e) {
+            log.warn("AI 블록 분리 실패, heuristic 폴백 사용: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    // === 문서 분류 기능 (v2) ===
+
+    public record ClassificationResult(
+            boolean isStudyMaterial,
+            String estimatedSubject,
+            String estimatedDifficulty,
+            String documentType,
+            String rejectionReason
+    ) {}
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    public ClassificationResult classifyDocument(String sampleText) {
+        String systemPrompt = """
+                당신은 학습자료 분류 전문가입니다.
+                사용자가 제공한 문서 텍스트를 분석하여 학습자료인지 판별하세요.
+
+                반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이 JSON만):
+
+                학습자료인 경우:
+                {"isStudyMaterial":true,"estimatedSubject":"과목명","estimatedDifficulty":"BEGINNER|INTERMEDIATE|ADVANCED","documentType":"TEXTBOOK|LECTURE_NOTE|PAPER|EXAM|OTHER"}
+
+                학습자료가 아닌 경우:
+                {"isStudyMaterial":false,"rejectionReason":"사유"}
+
+                판별 기준:
+                - 학습자료: 교재, 강의노트, 논문, 시험지, 학술 자료 등
+                - 비학습자료: 소설, 이력서, 계약서, 영수증, 광고, 이미지만 있는 PDF 등
+                """;
+
+        String response = callClaude(systemPrompt, sampleText);
+        return parseClassificationResponse(response);
+    }
+
+    private ClassificationResult parseClassificationResponse(String response) {
+        try {
+            // JSON 부분만 추출 (앞뒤 텍스트가 있을 수 있음)
+            String json = response.trim();
+            int jsonStart = json.indexOf('{');
+            int jsonEnd = json.lastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                json = json.substring(jsonStart, jsonEnd + 1);
+            }
+
+            JsonNode node = objectMapper.readTree(json);
+
+            boolean isStudyMaterial = node.path("isStudyMaterial").asBoolean(true);
+
+            if (isStudyMaterial) {
+                return new ClassificationResult(
+                        true,
+                        node.path("estimatedSubject").asText(null),
+                        node.path("estimatedDifficulty").asText(null),
+                        node.path("documentType").asText(null),
+                        null
+                );
+            } else {
+                return new ClassificationResult(
+                        false,
+                        null,
+                        null,
+                        null,
+                        node.path("rejectionReason").asText("학습자료로 적합하지 않은 문서입니다.")
+                );
+            }
+        } catch (Exception e) {
+            log.warn("분류 응답 파싱 실패, 안전하게 비학습자료로 처리: {}", e.getMessage());
+            return new ClassificationResult(false, null, null, null, "AI 분류 응답을 파싱할 수 없습니다. 다시 업로드해주세요.");
+        }
     }
 
     private String detectMockTag(String text) {

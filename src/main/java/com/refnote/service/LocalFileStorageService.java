@@ -12,10 +12,11 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 
 @Slf4j
 @Service
-@Profile("dev")
+@Profile({"dev", "test"})
 public class LocalFileStorageService implements FileStorageService {
 
     @Value("${file.upload-dir:./uploads}")
@@ -29,7 +30,7 @@ public class LocalFileStorageService implements FileStorageService {
 
             String filename = documentId + "_" + file.getOriginalFilename();
             Path target = dir.resolve(filename);
-            Files.copy(file.getInputStream(), target);
+            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
 
             String key = userId + "/" + filename;
             log.info("로컬 파일 저장 완료: {}", target);

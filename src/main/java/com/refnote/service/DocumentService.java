@@ -3,12 +3,10 @@ package com.refnote.service;
 import com.refnote.dto.document.*;
 import com.refnote.dto.explanation.ExplanationResponse;
 import com.refnote.entity.Document;
+import com.refnote.entity.Subject;
 import com.refnote.entity.User;
 import com.refnote.exception.ApiException;
-import com.refnote.repository.DocumentRepository;
-import com.refnote.repository.PdfBlockRepository;
-import com.refnote.repository.ExplanationRepository;
-import com.refnote.repository.UserRepository;
+import com.refnote.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,11 +27,16 @@ public class DocumentService {
     private final UserRepository userRepository;
     private final PdfBlockRepository pdfBlockRepository;
     private final ExplanationRepository explanationRepository;
+    private final SubjectRepository subjectRepository;
+    private final StudyTagRepository studyTagRepository;
+    private final NoteRepository noteRepository;
+    private final AnnotationRepository annotationRepository;
+    private final ReviewQueueItemRepository reviewQueueRepository;
     private final FileStorageService fileStorageService;
     private final PdfParsingService pdfParsingService;
 
     @Transactional
-    public DocumentResponse uploadDocument(MultipartFile file, String title, Long userId) {
+    public DocumentResponse uploadDocument(MultipartFile file, String title, Long subjectId, Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("사용자를 찾을 수 없습니다."));
 
@@ -43,9 +46,19 @@ public class DocumentService {
                     : "제목 없음";
         }
 
+        Subject subject = null;
+        if (subjectId != null) {
+            subject = subjectRepository.findById(subjectId)
+                    .orElseThrow(() -> ApiException.notFound("과목을 찾을 수 없습니다."));
+            if (!subject.getUser().getId().equals(userId)) {
+                throw ApiException.forbidden("해당 과목에 대한 접근 권한이 없습니다.");
+            }
+        }
+
         Document document = Document.builder()
                 .user(user)
                 .title(title)
+                .subject(subject)
                 .status(Document.DocumentStatus.UPLOADING)
                 .build();
         document = documentRepository.save(document);
@@ -68,10 +81,20 @@ public class DocumentService {
     }
 
     @Transactional(readOnly = true)
-    public DocumentListResponse getDocuments(Long userId) {
-        List<Document> documents = documentRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    public DocumentListResponse getDocuments(Long userId, Long subjectId) {
+        List<Document> documents;
+        if (subjectId != null) {
+            documents = documentRepository.findByUserIdAndSubjectIdOrderByCreatedAtDesc(userId, subjectId);
+        } else {
+            documents = documentRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        }
+
         List<DocumentResponse> responses = documents.stream()
-                .map(DocumentResponse::from)
+                .map(doc -> {
+                    int tagCount = studyTagRepository.countByDocumentId(doc.getId());
+                    int noteCount = noteRepository.countByDocumentId(doc.getId());
+                    return DocumentResponse.from(doc, tagCount, noteCount);
+                })
                 .collect(Collectors.toList());
         return DocumentListResponse.builder().documents(responses).build();
     }
@@ -102,6 +125,8 @@ public class DocumentService {
                 .s3Url(presignedUrl)
                 .pageCount(document.getPageCount())
                 .status(document.getStatus().name())
+                .subjectId(document.getSubject() != null ? document.getSubject().getId() : null)
+                .subjectName(document.getSubject() != null ? document.getSubject().getName() : null)
                 .blocks(blocks)
                 .explanations(explanations)
                 .createdAt(document.getCreatedAt())
@@ -116,6 +141,12 @@ public class DocumentService {
             fileStorageService.delete(document.getS3Key());
         }
 
+        // FK 의존 순서에 맞게 연관 데이터 먼저 삭제
+        annotationRepository.deleteAllByDocumentIdAndUserId(documentId, userId);
+        reviewQueueRepository.deleteAllByDocumentId(documentId);
+        studyTagRepository.deleteAllByDocumentId(documentId);
+        noteRepository.deleteAllByDocumentId(documentId);
+
         documentRepository.delete(document);
         log.info("문서 삭제 완료 - documentId: {}, userId: {}", documentId, userId);
     }
@@ -126,15 +157,22 @@ public class DocumentService {
 
         int progress = switch (document.getStatus()) {
             case UPLOADING -> 10;
+            case ANALYZING -> 20;
             case PARSING -> 40;
             case GENERATING -> 70;
             case READY -> 100;
+            case REJECTED -> 100;
             case FAILED -> 0;
         };
 
         return DocumentStatusResponse.builder()
                 .status(document.getStatus().name())
                 .progress(progress)
+                .isStudyMaterial(document.getIsStudyMaterial())
+                .estimatedSubject(document.getEstimatedSubject())
+                .estimatedDifficulty(document.getEstimatedDifficulty())
+                .documentType(document.getDocumentType())
+                .rejectionReason(document.getRejectionReason())
                 .build();
     }
 

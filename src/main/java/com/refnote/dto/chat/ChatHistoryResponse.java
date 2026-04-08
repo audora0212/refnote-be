@@ -25,6 +25,7 @@ public class ChatHistoryResponse {
         private String role;
         private String content;
         private List<Long> relatedBlockIds;
+        private String confidence;
         private LocalDateTime createdAt;
 
         public static ChatMessageDto from(ChatMessage msg) {
@@ -42,6 +43,7 @@ public class ChatHistoryResponse {
                     .role(msg.getRole().name())
                     .content(msg.getContent())
                     .relatedBlockIds(blockIds)
+                    .confidence(msg.getConfidence() != null ? msg.getConfidence().name() : null)
                     .createdAt(msg.getCreatedAt())
                     .build();
         }

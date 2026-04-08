@@ -30,6 +30,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/beta/count").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
                 .requestMatchers("/api/files/**").permitAll()
+                .requestMatchers("/ws/**").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )

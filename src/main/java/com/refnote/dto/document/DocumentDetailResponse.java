@@ -17,6 +17,8 @@ public class DocumentDetailResponse {
     private String s3Url;
     private Integer pageCount;
     private String status;
+    private Long subjectId;
+    private String subjectName;
     private List<PdfBlockResponse> blocks;
     private List<ExplanationResponse> explanations;
     private LocalDateTime createdAt;
