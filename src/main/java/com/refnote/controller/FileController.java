@@ -28,7 +28,13 @@ public class FileController {
             @PathVariable String userId,
             @PathVariable String filename) {
 
-        Path path = Paths.get(uploadDir).toAbsolutePath().resolve(userId).resolve(filename);
+        Path basePath = Paths.get(uploadDir).toAbsolutePath().normalize();
+        Path path = basePath.resolve(userId).resolve(filename).normalize();
+
+        if (!path.startsWith(basePath)) {
+            return ResponseEntity.status(403).build();
+        }
+
         Resource resource = new FileSystemResource(path);
 
         if (!resource.exists()) {
